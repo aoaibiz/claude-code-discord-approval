@@ -22,6 +22,7 @@ Setup:
 
 import json
 import os
+import stat
 import sys
 import time
 import uuid
@@ -30,6 +31,7 @@ import urllib.error
 
 # Configuration
 APPROVAL_DIR = os.environ.get("APPROVAL_DIR", "/tmp/claude_approvals")
+ALWAYS_ALLOW_FILE = os.path.join(APPROVAL_DIR, "_always_allow.json")
 POLL_INTERVAL = 2  # seconds
 POLL_TIMEOUT = 120  # seconds
 APPROVAL_API_URL = os.environ.get("APPROVAL_API_URL", "http://localhost:8766")
@@ -47,6 +49,32 @@ SKIP_TOOLS = {
 SKIP_PREFIXES = []  # e.g., ["mcp__plugin_discord_discord__"]
 
 
+def ensure_approval_dir():
+    """Create approval directory with restrictive permissions (700)."""
+    if not os.path.exists(APPROVAL_DIR):
+        os.makedirs(APPROVAL_DIR, mode=0o700, exist_ok=True)
+    else:
+        os.chmod(APPROVAL_DIR, 0o700)
+
+
+def load_always_allow() -> set:
+    """Load the always-allow list from disk."""
+    try:
+        with open(ALWAYS_ALLOW_FILE, "r") as f:
+            data = json.load(f)
+            return set(data.get("tools", []))
+    except (FileNotFoundError, json.JSONDecodeError):
+        return set()
+
+
+def save_always_allow(tools: set):
+    """Save the always-allow list to disk."""
+    ensure_approval_dir()
+    with open(ALWAYS_ALLOW_FILE, "w") as f:
+        json.dump({"tools": sorted(tools)}, f, indent=2)
+    os.chmod(ALWAYS_ALLOW_FILE, 0o600)
+
+
 def should_skip(tool_name: str) -> bool:
     """Check if a tool should skip the approval flow."""
     if tool_name in SKIP_TOOLS:
@@ -54,6 +82,10 @@ def should_skip(tool_name: str) -> bool:
     for prefix in SKIP_PREFIXES:
         if tool_name.startswith(prefix):
             return True
+    # Check always-allow list
+    always_allowed = load_always_allow()
+    if tool_name in always_allowed:
+        return True
     return False
 
 
@@ -89,7 +121,7 @@ def send_approval_request(request_id: str, tool_name: str, tool_input: dict) -> 
 
 def poll_for_decision(request_id: str) -> str:
     """Poll for approval decision file."""
-    os.makedirs(APPROVAL_DIR, exist_ok=True)
+    ensure_approval_dir()
     filepath = os.path.join(APPROVAL_DIR, f"{request_id}.json")
 
     start = time.time()
@@ -103,6 +135,13 @@ def poll_for_decision(request_id: str) -> str:
             except Exception:
                 return "deny"
         time.sleep(POLL_INTERVAL)
+
+    # Cleanup on timeout
+    try:
+        if os.path.exists(filepath):
+            os.remove(filepath)
+    except OSError:
+        pass
 
     return "timeout"
 
@@ -125,30 +164,40 @@ def main():
         sys.exit(0)
 
     tool_input = input_data.get("tool_input", {})
-    request_id = str(uuid.uuid4())[:8]
+    request_id = uuid.uuid4().hex[:16]
 
     sent = send_approval_request(request_id, tool_name, tool_input)
     if not sent:
+        # Fail-closed: deny tool execution when API is unreachable
         print(json.dumps({
-            "systemMessage": "Warning: Could not reach Approval API. Allowing tool execution."
+            "systemMessage": "承認APIに接続できません。安全のためツール実行を拒否しました。",
+            "hookSpecificOutput": {"permissionDecision": "deny"},
         }))
         sys.exit(0)
 
     decision = poll_for_decision(request_id)
 
-    if decision in ("allow", "always"):
-        result = {"hookSpecificOutput": {"permissionDecision": "allow"}}
-        if decision == "always":
-            result["systemMessage"] = f"'{tool_name}' added to always-allow list."
-        print(json.dumps(result))
+    if decision == "always":
+        # Persist to always-allow list
+        always_allowed = load_always_allow()
+        always_allowed.add(tool_name)
+        save_always_allow(always_allowed)
+        print(json.dumps({
+            "systemMessage": f"'{tool_name}' を常に許可リストに追加しました（永続）。",
+            "hookSpecificOutput": {"permissionDecision": "allow"},
+        }))
+    elif decision == "allow":
+        print(json.dumps({
+            "hookSpecificOutput": {"permissionDecision": "allow"},
+        }))
     elif decision == "timeout":
         print(json.dumps({
-            "systemMessage": "Discord approval timed out (120s). Tool execution denied.",
+            "systemMessage": "Discord承認がタイムアウトしました（120秒）。ツール実行を拒否しました。",
             "hookSpecificOutput": {"permissionDecision": "deny"},
         }))
     else:
         print(json.dumps({
-            "systemMessage": f"'{tool_name}' was denied via Discord.",
+            "systemMessage": f"'{tool_name}' はDiscord経由で拒否されました。",
             "hookSpecificOutput": {"permissionDecision": "deny"},
         }))
 
