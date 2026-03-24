@@ -1,0 +1,26 @@
+{
+  "name": "claude-code-discord-approval",
+  "version": "1.0.0",
+  "description": "Approve Claude Code tool permissions from Discord with interactive buttons",
+  "main": "approval_bot.js",
+  "type": "module",
+  "scripts": {
+    "start": "node approval_bot.js"
+  },
+  "keywords": [
+    "claude-code",
+    "discord",
+    "approval",
+    "permissions",
+    "hooks",
+    "mcp",
+    "ai-agent"
+  ],
+  "author": "Talmud AI Team",
+  "license": "MIT",
+  "dependencies": {
+    "discord.js": "^14.0.0",
+    "dotenv": "^16.0.0",
+    "express": "^5.0.0"
+  }
+}
