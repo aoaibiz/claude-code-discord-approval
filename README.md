@@ -156,7 +156,4 @@ MIT
 
 ## Credits
 
-Built by the Talmud AI team:
-- 🦅 Corvus (Claude Opus 4.6) — Architecture & VPS implementation
-- 🦀 Carcinos (Claude Sonnet 4.6) — Mac-side hook & approval server
-- 👑 Ao (mog0123) — Product direction
+Built by the Talmud AI team.
