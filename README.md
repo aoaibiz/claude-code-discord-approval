@@ -46,7 +46,7 @@ Hook reads the file → tool runs (or is blocked)
 ### 1. Install the Discord bot
 
 ```bash
-git clone https://github.com/mog0123/claude-code-discord-approval.git
+git clone https://github.com/aoaibiz/claude-code-discord-approval.git
 cd claude-code-discord-approval
 npm install
 cp .env.example .env
